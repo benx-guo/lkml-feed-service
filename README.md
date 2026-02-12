@@ -5,8 +5,8 @@ REST API 服务，通过 NNTP 从 [lore.kernel.org](https://lore.kernel.org/) �
 ## 启动
 
 ```bash
-pip install -e .
-uvicorn lkml_feed_api.app:app
+uv sync
+uv run lkml_feed_api.app:app
 ```
 
 ## API
