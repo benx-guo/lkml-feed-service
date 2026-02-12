@@ -2,7 +2,7 @@
 
 import json
 import logging
-import nntplib
+from ._nntp import NNTP, NNTPError
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -31,7 +31,7 @@ class NNTPFetcher:
     ) -> None:
         self._state_file = Path(state_file) if state_file else None
         self._cursors: Dict[str, int] = {}  # group_name -> last_article_number
-        self._conn: Optional[nntplib.NNTP] = None
+        self._conn: Optional[NNTP] = None
         self._body_concurrency = max(1, body_concurrency)
         self._local = threading.local()  # thread-local connections for parallel BODY
         self._load_state()
@@ -40,23 +40,23 @@ class NNTPFetcher:
     # Connection management
     # ------------------------------------------------------------------
 
-    def _connect(self) -> nntplib.NNTP:
+    def _connect(self) -> NNTP:
         """Establish or reuse NNTP connection with retry."""
         if self._conn is not None:
             try:
                 self._conn.date()
                 return self._conn
-            except (nntplib.NNTPError, OSError, EOFError):
+            except (NNTPError, OSError, EOFError):
                 self._close_conn()
 
         max_attempts = 3
         delay = 1.0
         for attempt in range(1, max_attempts + 1):
             try:
-                self._conn = nntplib.NNTP(NNTP_HOST, NNTP_PORT, timeout=30)
+                self._conn = NNTP(NNTP_HOST, NNTP_PORT, timeout=30)
                 logger.info("Connected to %s:%d", NNTP_HOST, NNTP_PORT)
                 return self._conn
-            except (nntplib.NNTPError, OSError) as e:
+            except (NNTPError, OSError) as e:
                 logger.warning(
                     "Attempt %d/%d connect to NNTP: %s: %s",
                     attempt,
@@ -76,7 +76,7 @@ class NNTPFetcher:
         if self._conn is not None:
             try:
                 self._conn.quit()
-            except (nntplib.NNTPError, OSError, EOFError):
+            except (NNTPError, OSError, EOFError):
                 pass
             self._conn = None
 
@@ -219,7 +219,7 @@ class NNTPFetcher:
                 conn = self._connect()
                 _resp, _count, _first, last, _name = conn.group(group_name)
                 return last
-            except (nntplib.NNTPError, OSError, EOFError) as e:
+            except (NNTPError, OSError, EOFError) as e:
                 logger.warning(
                     "Attempt %d/%d GROUP %s: %s: %s",
                     attempt,
@@ -251,7 +251,7 @@ class NNTPFetcher:
                 conn.group(group_name)  # must select group before OVER
                 _resp, overviews = conn.over((start, end))
                 return overviews
-            except (nntplib.NNTPError, OSError, EOFError) as e:
+            except (NNTPError, OSError, EOFError) as e:
                 logger.warning(
                     "Attempt %d/%d OVER %d-%d on %s: %s: %s",
                     attempt,
@@ -356,7 +356,7 @@ class NNTPFetcher:
                 line.decode("utf-8", errors="replace") for line in info.lines
             ]
             return "\n".join(lines)
-        except (nntplib.NNTPError, OSError, EOFError) as e:
+        except (NNTPError, OSError, EOFError) as e:
             logger.warning("Failed to fetch BODY %d: %s", article_num, e)
             self._close_conn()
             return None
@@ -372,32 +372,32 @@ class NNTPFetcher:
                 line.decode("utf-8", errors="replace") for line in info.lines
             ]
             return "\n".join(lines)
-        except (nntplib.NNTPError, OSError, EOFError) as e:
+        except (NNTPError, OSError, EOFError) as e:
             logger.warning("Failed to fetch BODY %d: %s", article_num, e)
             self._close_thread_conn()
             return None
 
-    def _get_thread_conn(self, group_name: str) -> nntplib.NNTP:
+    def _get_thread_conn(self, group_name: str) -> NNTP:
         """Get or create a thread-local NNTP connection."""
-        conn: Optional[nntplib.NNTP] = getattr(self._local, "conn", None)
+        conn: Optional[NNTP] = getattr(self._local, "conn", None)
         if conn is not None:
             try:
                 conn.date()
-            except (nntplib.NNTPError, OSError, EOFError):
+            except (NNTPError, OSError, EOFError):
                 self._close_thread_conn()
                 conn = None
         if conn is None:
-            conn = nntplib.NNTP(NNTP_HOST, NNTP_PORT, timeout=30)
+            conn = NNTP(NNTP_HOST, NNTP_PORT, timeout=30)
             self._local.conn = conn
         conn.group(group_name)
         return conn
 
     def _close_thread_conn(self) -> None:
-        conn: Optional[nntplib.NNTP] = getattr(self._local, "conn", None)
+        conn: Optional[NNTP] = getattr(self._local, "conn", None)
         if conn is not None:
             try:
                 conn.quit()
-            except (nntplib.NNTPError, OSError, EOFError):
+            except (NNTPError, OSError, EOFError):
                 pass
             self._local.conn = None
 
