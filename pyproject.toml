@@ -2,7 +2,7 @@
 name = "lkml-feed-api"
 version = "0.1.0"
 description = "Lightweight SDK + REST API for lore.kernel.org mailing lists via NNTP"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.9"
 dependencies = [
     "fastapi",
