@@ -6,7 +6,7 @@ REST API 服务，通过 NNTP 从 [lore.kernel.org](https://lore.kernel.org/) �
 
 ```bash
 uv sync
-uv run lkml_feed_api.app:app
+uv run lkml-feed-api
 ```
 
 ## API
