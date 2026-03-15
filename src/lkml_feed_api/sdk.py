@@ -37,7 +37,6 @@ class LKMLFeedClient:
                     匹配的条目才会拉取正文。不传则返回所有新消息。
         state_file: 状态文件路径。默认 ``.lkml_feed_state.json``，
                     传 ``None`` 禁用持久化。
-        body_concurrency: 正文拉取并发数，默认 1（串行）。
     """
 
     def __init__(
@@ -46,13 +45,10 @@ class LKMLFeedClient:
         *,
         keywords: Optional[List[str]] = None,
         state_file: Optional[str] = _DEFAULT_STATE_FILE,
-        body_concurrency: int = 1,
     ) -> None:
         self._subsystems = subsystems
         self._keywords = [k.lower() for k in keywords] if keywords else None
-        self._fetcher = NNTPFetcher(
-            state_file=state_file, body_concurrency=body_concurrency
-        )
+        self._fetcher = NNTPFetcher(state_file=state_file)
 
     def get_latest(self) -> FetchResult:
         """拉取新消息，返回关键词匹配的条目及是否已追平。"""

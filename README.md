@@ -21,7 +21,7 @@ uv run lkml-feed-api
 
 ### `GET /latest`
 
-返回自上次请求以来的新消息。每次最多处理 100 条消息，积压较多时剩余部分会在后续请求中返回。
+返回自上次请求以来的新消息。每次最多处理 1000 条消息，积压较多时剩余部分会在后续请求中返回。`is_caught_up` 为 `true` 表示已追平最新，`false` 表示还有更多未处理的消息。
 
 ```json
 {
@@ -40,7 +40,8 @@ uv run lkml-feed-api
         "summary": "...",
         "subsystem": "linux-doc"
       }
-    ]
+    ],
+    "is_caught_up": true
   }
 }
 ```
@@ -75,7 +76,6 @@ curl -X POST http://localhost:8000/reset
 |---------|------|--------|
 | `LKML_SUBSYSTEMS` | 子系统列表，逗号分隔 | `linux-doc` |
 | `LKML_KEYWORDS` | 关键词列表，逗号分隔（不区分大小写，匹配 subject，OR 逻辑） | `zh_cn` |
-| `LKML_BODY_CONCURRENCY` | 正文拉取并发数，设为 `1` 串行，`>1` 多连接并行 | `1` |
 
 ## 许可证
 

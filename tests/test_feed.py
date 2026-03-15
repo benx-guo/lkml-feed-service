@@ -24,6 +24,9 @@ def _mock_nntp(**kwargs) -> MagicMock:
     conn.group.return_value = ("211 100 1 500 grp", 100, 1, 500, "grp")
     conn.over.return_value = ("224 ok", [])
     conn.body.return_value = ("222 ok", ArticleInfo(lines=[b"body text"]))
+    conn.body_many.side_effect = lambda nums: [
+        (n, ArticleInfo(lines=[b"body text"])) for n in nums
+    ]
     conn.quit.return_value = "205 bye"
     for k, v in kwargs.items():
         setattr(conn, k, v)
@@ -351,7 +354,7 @@ class TestFetchSubsystem:
     @patch("lkml_feed_api.feed.NNTP")
     def test_caps_at_max_articles(self, MockNNTP, tmp_path):
         mock_conn = _mock_nntp()
-        mock_conn.group.return_value = ("211 1000 1 1000 g", 1000, 1, 1000, "g")
+        mock_conn.group.return_value = ("211 2000 1 2000 g", 2000, 1, 2000, "g")
         mock_conn.over.return_value = ("224 ok", [])
         MockNNTP.return_value = mock_conn
 
@@ -362,11 +365,11 @@ class TestFetchSubsystem:
 
     @patch("lkml_feed_api.feed.NNTP")
     def test_body_failure_still_returns_entry(self, MockNNTP, tmp_path):
-        """If body fetch fails, entry is still returned with empty summary."""
+        """If body_many returns None for an article, entry still returned with empty summary."""
         mock_conn = _mock_nntp()
         mock_conn.group.return_value = ("211 100 1 500 g", 100, 1, 500, "g")
         mock_conn.over.return_value = ("224 ok", [_overview(451)])
-        mock_conn.body.side_effect = NNTPError("body failed")
+        mock_conn.body_many.side_effect = lambda nums: [(n, None) for n in nums]
         MockNNTP.return_value = mock_conn
 
         fetcher = _make_fetcher(tmp_path, cursors={"org.kernel.vger.linux-doc": 450})
@@ -376,11 +379,11 @@ class TestFetchSubsystem:
 
     @patch("lkml_feed_api.feed.NNTP")
     def test_body_value_error_handled(self, MockNNTP, tmp_path):
-        """ValueError from corrupted buffer should not crash the request."""
+        """Pipeline error should not crash; entries returned with empty summary."""
         mock_conn = _mock_nntp()
         mock_conn.group.return_value = ("211 100 1 500 g", 100, 1, 500, "g")
         mock_conn.over.return_value = ("224 ok", [_overview(451)])
-        mock_conn.body.side_effect = ValueError("PyMemoryView buf NULL")
+        mock_conn.body_many.side_effect = ValueError("PyMemoryView buf NULL")
         MockNNTP.return_value = mock_conn
 
         fetcher = _make_fetcher(tmp_path, cursors={"org.kernel.vger.linux-doc": 450})

@@ -2,7 +2,7 @@
 
 import socket
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 
 class NNTPError(Exception):
@@ -157,3 +157,25 @@ class NNTP:
             raise NNTPError(resp)
         lines = self._read_multiline()
         return resp, ArticleInfo(lines=lines)
+
+    def body_many(
+        self, article_nums: List[int]
+    ) -> List[Tuple[int, Optional[ArticleInfo]]]:
+        """BODY pipelining — send all commands, then read all responses.
+
+        Returns ``[(article_num, ArticleInfo or None), ...]``.
+        """
+        # Send all BODY commands without waiting
+        for num in article_nums:
+            self._sendline(f"BODY {num}")
+
+        # Read all responses in order
+        results: List[Tuple[int, Optional[ArticleInfo]]] = []
+        for num in article_nums:
+            resp = self._readline()
+            if resp.startswith("222"):
+                lines = self._read_multiline()
+                results.append((num, ArticleInfo(lines=lines)))
+            else:
+                results.append((num, None))
+        return results

@@ -2,7 +2,7 @@
 
 ## 快速开始
 
-每次调用 `get_latest()` 返回一批新消息（最多 100 条）。当 `is_caught_up` 为 `False` 时，说明还有更多未处理的消息，应继续调用直到 `True`，此时已拉取到全部增量。
+每次调用 `get_latest()` 返回一批新消息（最多 1000 条）。当 `is_caught_up` 为 `False` 时，说明还有更多未处理的消息，应继续调用直到 `True`，此时已拉取到全部增量。
 
 ```python
 import time
@@ -23,7 +23,7 @@ while True:
 
 ## API
 
-### `LKMLFeedClient(subsystems, *, keywords, state_file, body_concurrency)`
+### `LKMLFeedClient(subsystems, *, keywords, state_file)`
 
 创建客户端，长期持有，连接自动复用。
 
@@ -32,7 +32,6 @@ while True:
 | `subsystems` | `List[str]` | 子系统列表，如 `["linux-doc"]` |
 | `keywords` | `Optional[List[str]]` | 关键词列表，不区分大小写，匹配 subject（OR 逻辑）。不传则返回所有消息 |
 | `state_file` | `Optional[str]` | 状态持久化文件路径，默认 `.lkml_feed_state.json`，传 `None` 禁用 |
-| `body_concurrency` | `int` | 正文拉取并发数，默认 `1`（串行）。设为 `>1` 时多连接并行拉取正文，可大幅提升命中率高时的性能 |
 
 ### `get_latest() -> FetchResult`
 
@@ -73,12 +72,12 @@ while True:
 
 ## 与 API 层的区别
 
-API 层（`/latest`）每次请求只拉取一个批次，不暴露 `is_caught_up`，剩余消息延迟到后续请求返回。SDK 层将 `is_caught_up` 交给调用方，由调用方决定是否循环追平。
+API 层（`/latest`）和 SDK 层行为一致：每次请求拉取一个批次，返回 `is_caught_up` 标志。调用方可据此判断是否继续拉取。
 
 ## 工作原理
 
 - NNTP 连接 `nntp.lore.kernel.org:119`，group 为 `org.kernel.vger.{subsystem}`
-- OVER 命令批量获取元数据（subject / from / date / message-id / references），每批最多 100 篇
+- OVER 命令批量获取元数据（subject / from / date / message-id / references），每批最多 1000 篇
 - 基于 article number 做增量游标，持久化到 JSON 文件，重启不丢状态
 - 按 subject 关键词过滤，只对命中的条目拉取 BODY
 - 断线自动重连（3 次重试，指数退避）

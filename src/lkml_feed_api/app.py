@@ -18,11 +18,8 @@ logging.basicConfig(level=logging.INFO)
 _subsystems = [s.strip() for s in os.getenv("LKML_SUBSYSTEMS", "linux-doc").split(",") if s.strip()]
 _keywords_env = os.getenv("LKML_KEYWORDS", "zh_cn")
 _keywords = [k.strip() for k in _keywords_env.split(",") if k.strip()] or None
-_body_concurrency = int(os.getenv("LKML_BODY_CONCURRENCY", "1"))
 
-client = LKMLFeedClient(
-    _subsystems, keywords=_keywords, body_concurrency=_body_concurrency
-)
+client = LKMLFeedClient(_subsystems, keywords=_keywords)
 
 
 @asynccontextmanager
@@ -43,18 +40,17 @@ def ping() -> ApiResponse:
 def latest() -> ApiResponse:
     result = client.get_latest()
     return ApiResponse(
-        data={"entries": [e.model_dump() for e in result.entries]}
+        data={
+            "entries": [e.model_dump() for e in result.entries],
+            "is_caught_up": result.is_caught_up,
+        }
     )
 
 
 @app.post("/rewind")
 def rewind(n: int) -> ApiResponse:
     client.rewind(n)
-    result = client.get_latest()
-    return ApiResponse(
-        message=f"rewound {n} messages",
-        data={"entries": [e.model_dump() for e in result.entries]},
-    )
+    return ApiResponse(message=f"rewound {n} messages")
 
 
 @app.post("/reset")

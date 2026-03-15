@@ -5,7 +5,6 @@ import logging
 from ._nntp import NNTP, NNTPError
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from email.utils import parseaddr, parsedate_to_datetime
 from pathlib import Path
@@ -20,21 +19,18 @@ NNTP_HOST = "nntp.lore.kernel.org"
 NNTP_PORT = 119
 
 # Maximum articles to fetch per subsystem in a single call
-_MAX_ARTICLES_PER_FETCH = 100
+_MAX_ARTICLES_PER_FETCH = 1000
 
 
 class NNTPFetcher:
     def __init__(
         self,
         state_file: Optional[str] = None,
-        body_concurrency: int = 1,
     ) -> None:
         self._state_file = Path(state_file) if state_file else None
         self._cursors: Dict[str, int] = {}  # group_name -> last_article_number
         self._conn: Optional[NNTP] = None
         self._conn_lock = threading.Lock()
-        self._body_concurrency = max(1, body_concurrency)
-        self._local = threading.local()  # thread-local connections for parallel BODY
         self._load_state()
 
     # ------------------------------------------------------------------
@@ -190,7 +186,7 @@ class NNTPFetcher:
                     continue
                 matched.append((art_num, parsed))
 
-            # Fetch BODY (serial or parallel)
+            # Fetch BODY via pipelining
             entries: List[MailEntry] = []
             if matched:
                 bodies = self._fetch_bodies(group_name, [a for a, _ in matched])
@@ -253,7 +249,8 @@ class NNTPFetcher:
         for attempt in range(1, max_attempts + 1):
             try:
                 conn = self._connect()
-                conn.group(group_name)  # must select group before OVER
+                if attempt > 1:
+                    conn.group(group_name)  # re-select after reconnect
                 _resp, overviews = conn.over((start, end))
                 return overviews
             except (NNTPError, OSError, EOFError, ValueError) as e:
@@ -339,72 +336,26 @@ class NNTPFetcher:
     def _fetch_bodies(
         self, group_name: str, article_nums: List[int]
     ) -> List[Optional[str]]:
-        """Fetch multiple article bodies, serial or parallel."""
-        if self._body_concurrency <= 1:
-            return [self._fetch_body(group_name, n) for n in article_nums]
-
-        def _worker(art_num: int) -> Optional[str]:
-            return self._fetch_body_threaded(group_name, art_num)
-
-        with ThreadPoolExecutor(
-            max_workers=self._body_concurrency
-        ) as pool:
-            return list(pool.map(_worker, article_nums))
-
-    def _fetch_body(self, group_name: str, article_num: int) -> Optional[str]:
-        """Fetch article body text using main connection."""
+        """Fetch multiple article bodies via NNTP pipelining."""
         try:
             conn = self._connect()
-            conn.group(group_name)
-            _resp, info = conn.body(article_num)
-            lines = [
-                line.decode("utf-8", errors="replace") for line in info.lines
-            ]
-            return "\n".join(lines)
+            results = conn.body_many(article_nums)
+            bodies: List[Optional[str]] = []
+            for art_num, info in results:
+                if info is not None:
+                    lines = [
+                        line.decode("utf-8", errors="replace")
+                        for line in info.lines
+                    ]
+                    bodies.append("\n".join(lines))
+                else:
+                    logger.warning("Failed to fetch BODY %d via pipeline", art_num)
+                    bodies.append(None)
+            return bodies
         except (NNTPError, OSError, EOFError, ValueError) as e:
-            logger.warning("Failed to fetch BODY %d: %s", article_num, e)
+            logger.warning("Pipeline BODY fetch failed: %s", e)
             self._close_conn()
-            return None
-
-    def _fetch_body_threaded(
-        self, group_name: str, article_num: int
-    ) -> Optional[str]:
-        """Fetch article body using thread-local NNTP connection."""
-        try:
-            conn = self._get_thread_conn(group_name)
-            _resp, info = conn.body(article_num)
-            lines = [
-                line.decode("utf-8", errors="replace") for line in info.lines
-            ]
-            return "\n".join(lines)
-        except (NNTPError, OSError, EOFError, ValueError) as e:
-            logger.warning("Failed to fetch BODY %d: %s", article_num, e)
-            self._close_thread_conn()
-            return None
-
-    def _get_thread_conn(self, group_name: str) -> NNTP:
-        """Get or create a thread-local NNTP connection."""
-        conn: Optional[NNTP] = getattr(self._local, "conn", None)
-        if conn is not None:
-            try:
-                conn.date()
-            except (NNTPError, OSError, EOFError, ValueError):
-                self._close_thread_conn()
-                conn = None
-        if conn is None:
-            conn = NNTP(NNTP_HOST, NNTP_PORT, timeout=30)
-            self._local.conn = conn
-        conn.group(group_name)
-        return conn
-
-    def _close_thread_conn(self) -> None:
-        conn: Optional[NNTP] = getattr(self._local, "conn", None)
-        if conn is not None:
-            try:
-                conn.quit()
-            except (NNTPError, OSError, EOFError, ValueError):
-                pass
-            self._local.conn = None
+            return [None] * len(article_nums)
 
     # ------------------------------------------------------------------
     # State persistence
